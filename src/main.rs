@@ -81,10 +81,10 @@ fn main() {
         }
     }
 
-    let mut grid_size = 0;
+    let mut pixel_size = 0;
 
     if args_grid_size.is_some() {
-        grid_size = args_grid_size.unwrap();
+        pixel_size = args_grid_size.unwrap();
     } else {
         loop {
             println!("What is the size of a single grid cell in pixels?");
@@ -93,7 +93,7 @@ fn main() {
 
             let parsed_grid_size = grid_size_input.trim().parse();
             if parsed_grid_size.is_ok() {
-                grid_size = parsed_grid_size.unwrap();
+                pixel_size = parsed_grid_size.unwrap();
                 break;
             }
 
@@ -101,8 +101,8 @@ fn main() {
         }
     }
 
-    let grid = build_representation(&qr_image, grid_size, final_primary_color);
-    create_stl(grid);
+    let grid = build_representation(&qr_image, pixel_size, final_primary_color);
+    create_stl(grid, (qr_image.width() / pixel_size) as usize);
 
     println!("STL successfully created at \"qrcode.stl\"");
 }
@@ -147,7 +147,7 @@ fn build_representation(qr_image: &DynamicImage, grid_size: u32, primary_color: 
 
         y = grid_size / 2;
         while y < qr_image.height() {
-            let is_primary = qr_image.get_pixel(x, y).to_rgb().0 == primary_color;
+            let is_primary = qr_image.get_pixel(y, x).to_rgb().0 == primary_color;
 
             grid.last_mut().unwrap().push(is_primary);
             y += grid_size;
@@ -159,131 +159,153 @@ fn build_representation(qr_image: &DynamicImage, grid_size: u32, primary_color: 
     grid
 }
 
-fn create_stl(grid: Vec<Vec<bool>>) {
+fn create_stl(grid: Vec<Vec<bool>>, grid_size: usize) {
     let mut mesh: Vec<Triangle> = vec![];
 
-    let mut i = 1f32;
-    for x in grid {
-        let mut j = 1f32;
-        for y in x {
-            if !y {
-                mesh.append(&mut create_block(i, j, 2.0).iter().as_slice().to_vec());
-            }
-            j += 2.0;
-        }
+    let mut vertices: Vec<Vec<(f32, f32)>> = vec![];
+    let edge_length = 1.0 / grid_size as f32;
 
-        i += 2.0;
+    for i in 0..(grid_size + 1) {
+        vertices.push(vec![]);
+        for j  in 0..(grid_size + 1) {
+            vertices[i].push((j as f32 * edge_length - 0.5, i as f32 * -edge_length + 0.5));
+        }
+    }
+
+    for x in 0..grid.len() {
+        for y in 0..grid[x].len() {
+            if !grid[x][y] {
+                // check if there is a cell is above
+                if y == 0 || grid[x][y - 1] {
+                    mesh.push(Triangle {
+                        normal: Normal::new([0.0, 1.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x][y], 0.0),
+                            convert(vertices[x + 1][y], 0.0),
+                            convert(vertices[x][y], 1.0),
+                        ]
+                    });
+
+                    mesh.push(Triangle {
+                        normal: Normal::new([0.0, 1.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x + 1][y], 1.0),
+                            convert(vertices[x][y], 1.0),
+                            convert(vertices[x + 1][y], 0.0),
+                        ]
+                    });
+                }
+
+                // check if there is a cell is below
+                if y == grid[x].len() - 1 || grid[x][y + 1] {
+                    mesh.push(Triangle {
+                        normal: Normal::new([0.0, -1.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x][y +1], 0.0),
+                            convert(vertices[x][y + 1], 1.0),
+                            convert(vertices[x + 1][y + 1], 0.0),
+                        ]
+                    });
+
+                    mesh.push(Triangle {
+                        normal: Normal::new([0.0, -1.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x][y + 1], 1.0),
+                            convert(vertices[x + 1][y + 1], 1.0),
+                            convert(vertices[x + 1][y + 1], 0.0),
+                        ]
+                    });
+                }
+
+                // check if there is a cell is left
+                if x == 0 || grid[x - 1][y] {
+                    mesh.push(Triangle {
+                        normal: Normal::new([-1.0, 0.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x][y], 0.0),
+                            convert(vertices[x][y], 1.0),
+                            convert(vertices[x][y + 1], 0.0),
+                        ]
+                    });
+
+                    mesh.push(Triangle {
+                        normal: Normal::new([-1.0, 0.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x][y], 1.0),
+                            convert(vertices[x][y + 1], 1.0),
+                            convert(vertices[x][y + 1], 0.0),
+                        ]
+                    });
+                }
+
+                // check if there is a cell is right
+                if x == grid.len() - 1 || grid[x + 1][y] {
+                    mesh.push(Triangle {
+                        normal: Normal::new([1.0, 0.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x + 1][y + 1], 0.0),
+                            convert(vertices[x + 1][y], 1.0),
+                            convert(vertices[x + 1][y], 0.0),
+                        ]
+                    });
+
+                    mesh.push(Triangle {
+                        normal: Normal::new([1.0, 0.0, 0.0]),
+                        vertices: [
+                            convert(vertices[x + 1][y + 1], 0.0),
+                            convert(vertices[x + 1][y + 1], 1.0),
+                            convert(vertices[x + 1][y], 1.0),
+                        ]
+                    });
+                }
+
+                mesh.push(Triangle {
+                    normal: Normal::new([0.0, 1.0, 0.0]),
+                    vertices: [
+                        convert(vertices[x][y], 1.0),
+                        convert(vertices[x + 1][y], 1.0),
+                        convert(vertices[x][y + 1], 1.0),
+                    ],
+                });
+
+                mesh.push(Triangle {
+                    normal: Normal::new([0.0, 1.0, 0.0]),
+                    vertices: [
+                        convert(vertices[x + 1][y], 1.0),
+                        convert(vertices[x + 1][y + 1], 1.0),
+                        convert(vertices[x][y + 1], 1.0),
+                    ],
+                });
+
+                mesh.push(Triangle {
+                    normal: Normal::new([0.0, -1.0, 0.0]),
+                    vertices: [
+                        convert(vertices[x][y], 0.0),
+                        convert(vertices[x][y + 1], 0.0),
+                        convert(vertices[x + 1][y], 0.0),
+                    ],
+                });
+
+                mesh.push(Triangle {
+                    normal: Normal::new([0.0, -1.0, 0.0]),
+                    vertices: [
+                        convert(vertices[x + 1][y], 0.0),
+                        convert(vertices[x][y + 1], 0.0),
+                        convert(vertices[x + 1][y + 1], 0.0),
+                    ],
+                });
+            }
+        }
     }
 
     let mut file = OpenOptions::new().write(true).create_new(true).open("qrcode.stl").unwrap();
     stl_io::write_stl(&mut file, mesh.iter()).unwrap();
 }
 
-fn create_block(x: f32, y: f32, height: f32) -> [Triangle; 12] {
-    let block = [
-        // Top triangles
-        Triangle {
-            normal: Normal::new([0.0, 0.0, 1.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, 1.0 + y, 0.0]),
-                Vertex::new([-1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, 1.0 + y, 0.0]),
-            ],
-        },
-        Triangle {
-            normal: Normal::new([0.0, 0.0, 1.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, 1.0 + y, 0.0]),
-            ],
-        },
-        // Bottom Triangles
-        Triangle {
-            normal: Normal::new([0.0, 0.0, -1.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, 1.0 + y, -height]),
-                Vertex::new([1.0 + x, 1.0 + y, -height]),
-                Vertex::new([-1.0 + x, -1.0 + y, -height]),
-            ],
-        },
-        Triangle {
-            normal: Normal::new([0.0, 0.0, -1.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, -1.0 + y, -height]),
-                Vertex::new([1.0 + x, 1.0 + y, -height]),
-                Vertex::new([1.0 + x, -1.0 + y, -height]),
-            ],
-        },
-        // Left-Facing Triangles
-        Triangle {
-            normal: Normal::new([-1.0, 0.0, 0.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, 1.0 + y, 0.0]),
-                Vertex::new([-1.0 + x, 1.0 + y, -height]),
-                Vertex::new([-1.0 + x, -1.0 + y, 0.0]),
-            ],
-        },
-        Triangle {
-            normal: Normal::new([-1.0, 0.0, 0.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([-1.0 + x, 1.0 + y, -height]),
-                Vertex::new([-1.0 + x, -1.0 + y, -height]),
-            ],
-        },
-        // Right-Facing Triangles
-        Triangle {
-            normal: Normal::new([1.0, 0.0, 0.0]),
-            vertices: [
-                Vertex::new([1.0 + x, 1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, 1.0 + y, -height]),
-            ],
-        },
-        Triangle {
-            normal: Normal::new([1.0, 0.0, 0.0]),
-            vertices: [
-                Vertex::new([1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, -1.0 + y, -height]),
-                Vertex::new([1.0 + x, 1.0 + y, -height]),
-            ],
-        },
-        // Upwards-Facing Triangles
-        Triangle {
-            normal: Normal::new([0.0, 1.0, 0.0]),
-            vertices: [
-                Vertex::new([1.0 + x, 1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, 1.0 + y, -height]),
-                Vertex::new([-1.0 + x, 1.0 + y, 0.0]),
-            ],
-        },
-        Triangle {
-            normal: Normal::new([0.0, 1.0, 0.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, 1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, 1.0 + y, -height]),
-                Vertex::new([-1.0 + x, 1.0 + y, -height]),
-            ],
-        },
-        // Downwards-Facing Triangles
-        Triangle {
-            normal: Normal::new([0.0, -1.0, 0.0]),
-            vertices: [
-                Vertex::new([1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([-1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([1.0 + x, -1.0 + y, -height]),
-            ],
-        },
-        Triangle {
-            normal: Normal::new([0.0, -1.0, 0.0]),
-            vertices: [
-                Vertex::new([-1.0 + x, -1.0 + y, 0.0]),
-                Vertex::new([-1.0 + x, -1.0 + y, -height]),
-                Vertex::new([1.0 + x, -1.0 + y, -height]),
-            ],
-        },
-    ];
-
-    block
+fn convert(vertex: (f32, f32), z: f32) -> Vertex {
+    return Vertex::new([
+        vertex.0,
+        vertex.1,
+        z
+    ]);
 }
