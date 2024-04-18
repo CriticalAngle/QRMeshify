@@ -1,5 +1,5 @@
 # QR Meshify
-This program turns any QR code image into an STL file, ready for print.
+This program turns QR code image into an STL file, ready for print.
 
 `NOTE: This software can only handle the basic QR codes that are simply comprised of squares. Any custom shapes, logos in the center, etc. will result in undesirable meshes. The squares can be different colors, but there must only be two (usually black and white).`
 
